@@ -1,0 +1,114 @@
+import psycopg2
+
+# Database connection settings
+DB_HOST = 'localhost'
+DB_NAME = 'database_name'
+DB_USER = 'username'
+DB_PASSWORD = 'password'
+
+# Connect to the database
+conn = psycopg2.connect(
+    host=DB_HOST,
+    database=DB_NAME,
+    user=DB_USER,
+    password=DB_PASSWORD
+)
+
+# Create a cursor object
+cur = conn.cursor()
+
+# Create the parties table if it doesn't exist
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS parties (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50) NOT NULL
+    );
+""")
+
+# Add the votes column to the parties table
+cur.execute("""
+    ALTER TABLE parties
+    ADD COLUMN IF NOT EXISTS votes INTEGER DEFAULT 0;
+""")
+
+# Create the voters table if it doesn't exist
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS voters (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50) NOT NULL,
+        party_id INTEGER NOT NULL REFERENCES parties(id)
+    );
+""")
+
+# Insert the party names into the database
+party_names = "1. BJP\n2. CONGRESS\n3. BSP\n4. CPI\n5. CPM"
+party_list = [party_name[3:] for party_name in party_names.split('\n')]
+for party_name in party_list:
+    cur.execute("INSERT INTO parties (name) VALUES (%s)", (party_name,))
+
+# Commit the changes
+conn.commit()
+
+# Define a function to get the party names from the database
+def get_party_names():
+    cur.execute("SELECT name FROM parties ORDER BY id")
+    return [row[0] for row in cur.fetchall()]
+
+# Define a function to cast a vote
+def cast_vote(voter_name, party_name):
+    # Get the party ID from the database
+    cur.execute("SELECT id FROM parties WHERE name = %s", (party_name,))
+    party_id = cur.fetchone()[0]
+
+    # Insert the voter's information into the database
+    cur.execute("INSERT INTO voters (name, party_id) VALUES (%s, %s)", (voter_name, party_id))
+
+    # Update the party's vote count
+    cur.execute("UPDATE parties SET votes = votes + 1 WHERE id = %s", (party_id,))
+
+    # Commit the changes
+    conn.commit()
+    print("Vote submitted!")
+
+# Define a function to get the vote count for each party
+def get_vote_count():
+    cur.execute("SELECT p.name, p.votes FROM parties p ORDER BY p.votes DESC")
+    return cur.fetchall()
+
+# Define a function to check if there are more voters
+def more_voters():
+    response = input("Are there more voters? (yes/no): ")
+    return response.lower() == 'yes'
+
+# Main loop
+while True:
+    # Get the party names from the database
+    party_names = get_party_names()
+
+    # Print the party names
+    print("Select a party to vote for:")
+    for i, party_name in enumerate(party_names):
+        print(f"{i+1}. {party_name}")
+
+    # Get the voter's name and selection
+    voter_name = input("Enter your name: ")
+    selection = int(input("Enter the number of your chosen party: "))
+    party_name = party_names[selection - 1]
+
+    # Cast the vote
+    cast_vote(voter_name, party_name)
+
+    # Print the current vote count
+    print("Current vote count:")
+    for party, votes in get_vote_count():
+        print(f"{party}: {votes}")
+
+    # Check if there are more voters
+    if not more_voters():
+        winner = max(get_vote_count(), key=lambda x: x[1])
+        print(f"The winner of the election is {winner[0]} with {winner[1]} votes!")
+        print(f"They won by {winner[1] - get_vote_count()[1][1]} votes!")
+        break
+
+# Close the database connection
+conn.close()
